@@ -47,7 +47,15 @@ export default async function handler(req, res) {
     const companyMatch = html.match(/<td[^>]*>([^<]+страхов[^<]+)<\/td>/i);
     const company = companyMatch ? companyMatch[1].trim() : 'Not found';
 
-    res.json({ plate, company });
+    res.json({ 
+      plate, 
+      company,
+      debug: {
+        htmlLength: html.length,
+        htmlSnippet: html.substring(0, 500),
+        statusCode: searchResponse.status
+      }
+    });
     
   } catch (error) {
     res.status(500).json({ 

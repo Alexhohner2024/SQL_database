@@ -1,4 +1,4 @@
-import axios from 'axios';
+// Используем встроенный fetch
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -13,10 +13,11 @@ export default async function handler(req, res) {
 
   try {
     // Получаем главную страницу для токенов
-    const mainPage = await axios.get('https://policy.mtsbu.ua/?SearchType=Contract');
+    const mainPage = await fetch('https://policy.mtsbu.ua/?SearchType=Contract');
+    const mainPageHtml = await mainPage.text();
     
     // Ищем токен CSRF
-    const tokenMatch = mainPage.data.match(/__RequestVerificationToken.*?value="([^"]+)"/);
+    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
     const csrfToken = tokenMatch ? tokenMatch[1] : '';
     
     if (!csrfToken) {
@@ -31,7 +32,9 @@ export default async function handler(req, res) {
       '__RequestVerificationToken': csrfToken
     });
 
-    const searchResponse = await axios.post('https://policy.mtsbu.ua/Search/ByRegNo', postData, {
+    const searchResponse = await fetch('https://policy.mtsbu.ua/Search/ByRegNo', {
+      method: 'POST',
+      body: postData,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
@@ -40,7 +43,7 @@ export default async function handler(req, res) {
     });
 
     // Парсим результат
-    const html = searchResponse.data;
+    const html = await searchResponse.text();
     const companyMatch = html.match(/<td[^>]*>([^<]+страхов[^<]+)<\/td>/i);
     const company = companyMatch ? companyMatch[1].trim() : 'Not found';
 
@@ -48,8 +51,7 @@ export default async function handler(req, res) {
     
   } catch (error) {
     res.status(500).json({ 
-      error: error.message,
-      details: error.response?.data || 'Unknown error'
+      error: error.message
     });
   }
 }

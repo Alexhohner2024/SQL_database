@@ -1,5 +1,5 @@
 import puppeteer from 'puppeteer-core';
-import chromium from 'chrome-aws-lambda';
+import chromium from '@sparticuz/chromium';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {

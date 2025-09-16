@@ -4,9 +4,5 @@
   "scripts": {
     "dev": "node api/parse.js"
   },
-  "dependencies": {
-    "puppeteer-core": "^19.2.2",
-    "@sparticuz/chromium": "^116.0.0",
-    "axios": "^1.5.0"
-  }
+  "dependencies": {}
 }

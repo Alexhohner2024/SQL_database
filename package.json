@@ -1,0 +1,11 @@
+{
+  "name": "insurance-parser",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "node api/parse.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "axios": "^1.5.0"
+  }
+}

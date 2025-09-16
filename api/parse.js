@@ -39,13 +39,14 @@ export default async function handler(req, res) {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+      },
+      redirect: 'follow'
     });
 
     // Парсим результат
     const html = await searchResponse.text();
-    const companyMatch = html.match(/<td[^>]*>([^<]+страхов[^<]+)<\/td>/i);
-    const company = companyMatch ? companyMatch[1].trim() : 'Not found';
+    const companyMatch = html.match(/ПрАТ СК[^<"]+|ТОВ[^<"]+|АТ[^<"]*/i);
+    const company = companyMatch ? companyMatch[0].trim() : 'Not found';
 
     res.json({ 
       plate, 

@@ -5,7 +5,7 @@
     "dev": "node api/parse.js"
   },
   "dependencies": {
-    "puppeteer-core": "^21.0.0",
+    "puppeteer-core": "^10.4.0",
     "chrome-aws-lambda": "^10.1.0",
     "axios": "^1.5.0"
   }

@@ -1,7 +1,7 @@
 {
-  "name": "insurance-parser", 
-  "version": "1.0.0",
+  "name": "insurance-parser",
+  "version": "1.0.0", 
   "dependencies": {
-    "puppeteer-real-browser": "^1.4.4"
+    "cloudscraper": "^4.6.0"
   }
 }

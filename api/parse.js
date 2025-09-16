@@ -1,4 +1,4 @@
-// Используем встроенный fetch
+const { connect } = require('puppeteer-real-browser');
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -11,41 +11,44 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Plate number required' });
   }
 
+  let browser;
   try {
-    // Получаем главную страницу для токенов
-    const mainPage = await fetch('https://policy.mtsbu.ua/?SearchType=Contract');
-    const mainPageHtml = await mainPage.text();
+    const { browser: realBrowser, page } = await connect({
+      headless: true,
+      turnstile: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
     
-    // Ищем токен CSRF
-    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
-    const csrfToken = tokenMatch ? tokenMatch[1] : '';
+    browser = realBrowser;
     
-    if (!csrfToken) {
-      return res.status(500).json({ error: 'CSRF token not found' });
+    await page.goto('https://policy.mtsbu.ua/?SearchType=Contract', {
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    });
+    
+    // Клик на "Державний номер ТЗ" если не выбрано
+    const plateRadio = await page.$('input[value="PlateNumber"]');
+    if (plateRadio) {
+      await plateRadio.click();
+      await page.waitForTimeout(1000);
     }
-
-    // Отправляем POST запрос
-    const postData = new URLSearchParams({
-      'RegNoModel.PlateNumber': plate,
-      'RegNoModel.Date': new Date().toLocaleDateString('uk-UA'),
-      'SearchType': 'Contract',
-      '__RequestVerificationToken': csrfToken
-    });
-
-    const searchResponse = await fetch('https://policy.mtsbu.ua/Search/ByRegNo', {
-      method: 'POST',
-      body: postData,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      redirect: 'follow'
-    });
-
+    
+    // Вводим номер
+    const inputField = await page.$('input[name="Number"]');
+    if (inputField) {
+      await inputField.click();
+      await inputField.type(plate);
+    }
+    
+    // Кликаем "Перевірити"
+    await page.click('button[type="submit"]');
+    
+    // Ждем результат
+    await page.waitForTimeout(10000);
+    
     // Парсим результат
-    const html = await searchResponse.text();
-    const companyMatch = html.match(/ПрАТ СК[^<"]+|ТОВ[^<"]+|АТ[^<"]*/i);
+    const html = await page.content();
+    const companyMatch = html.match(/ПрАТ СК[^<"]+|ТОВ[^<"]+|АТ[^<"]+|СК[^<"]+/i);
     const company = companyMatch ? companyMatch[0].trim() : 'Not found';
 
     res.json({ 
@@ -53,8 +56,7 @@ export default async function handler(req, res) {
       company,
       debug: {
         htmlLength: html.length,
-        htmlSnippet: html.substring(0, 500),
-        statusCode: searchResponse.status
+        url: page.url()
       }
     });
     
@@ -62,5 +64,9 @@ export default async function handler(req, res) {
     res.status(500).json({ 
       error: error.message
     });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }

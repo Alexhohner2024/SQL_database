@@ -1,5 +1,4 @@
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+import axios from 'axios';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -12,43 +11,45 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Plate number required' });
   }
 
-  let browser;
   try {
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-    });
+    // Получаем главную страницу для токенов
+    const mainPage = await axios.get('https://policy.mtsbu.ua/?SearchType=Contract');
     
-    const page = await browser.newPage();
-    await page.goto('https://policy.mtsbu.ua/?SearchType=Contract');
+    // Ищем токен CSRF
+    const tokenMatch = mainPage.data.match(/__RequestVerificationToken.*?value="([^"]+)"/);
+    const csrfToken = tokenMatch ? tokenMatch[1] : '';
     
-    // Клик на "Державний номер ТЗ" если не выбрано
-    const plateRadio = await page.$('input[value="PlateNumber"]');
-    if (plateRadio) {
-      await plateRadio.click();
+    if (!csrfToken) {
+      return res.status(500).json({ error: 'CSRF token not found' });
     }
-    
-    // Вводим номер
-    await page.type('input[name="Number"]', plate);
-    
-    // Кликаем "Перевірити"
-    await page.click('button[type="submit"]');
-    
-    // Ждем результат
-    await page.waitForTimeout(5000);
-    
-    // Парсим результат (нужно будет уточнить селектор)
-    const company = await page.$eval('.company-name', el => el.textContent) || 'Not found';
-    
+
+    // Отправляем POST запрос
+    const postData = new URLSearchParams({
+      'RegNoModel.PlateNumber': plate,
+      'RegNoModel.Date': new Date().toLocaleDateString('uk-UA'),
+      'SearchType': 'Contract',
+      '__RequestVerificationToken': csrfToken
+    });
+
+    const searchResponse = await axios.post('https://policy.mtsbu.ua/Search/ByRegNo', postData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    // Парсим результат
+    const html = searchResponse.data;
+    const companyMatch = html.match(/<td[^>]*>([^<]+страхов[^<]+)<\/td>/i);
+    const company = companyMatch ? companyMatch[1].trim() : 'Not found';
+
     res.json({ plate, company });
     
   } catch (error) {
-    res.status(500).json({ error: error.message });
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data || 'Unknown error'
+    });
   }
 }

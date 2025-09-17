@@ -55,7 +55,7 @@ export default async function handler(req, res) {
 
     // Парсим результат
     const html = await searchResponse.text();
-    const companyMatch = html.match(/ПрАТ СК[^<"]+|ТОВ[^<"]+|АТ[^<"]+|СК[^<"]+/i);
+    const companyMatch = html.match(/ПрАТ СК "[^"]+"|ТОВ "[^"]+"|АТ "[^"]+"|СК "[^"]+"/i);
     const company = companyMatch ? companyMatch[0].trim() : 'Not found';
 
     res.json({ 

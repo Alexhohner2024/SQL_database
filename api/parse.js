@@ -10,14 +10,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Используем другой публичный proxy
-    const proxyUrl = 'https://corsproxy.io/?';
-    const targetUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
-    
-    // Получаем главную страницу через proxy
-    const mainPage = await fetch(proxyUrl + targetUrl, {
+    // Простой запрос без proxy с минимальными заголовками
+    const mainPage = await fetch('https://policy.mtsbu.ua/', {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        'User-Agent': 'curl/7.68.0'
       }
     });
     
@@ -51,17 +47,13 @@ export default async function handler(req, res) {
       '__RequestVerificationToken': csrfToken
     });
 
-    // Отправляем POST запрос через другой proxy (поддерживает POST)
-    const corsProxyUrl = 'https://cors-anywhere.herokuapp.com/';
-    
-    const searchResponse = await fetch(corsProxyUrl + 'https://policy.mtsbu.ua/', {
+    // POST без proxy, прямой запрос с curl заголовками
+    const searchResponse = await fetch('https://policy.mtsbu.ua/', {
       method: 'POST',
       body: postData,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': 'https://policy.mtsbu.ua',
-        'Referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        'User-Agent': 'curl/7.68.0'
       }
     });
 

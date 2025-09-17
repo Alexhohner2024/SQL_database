@@ -10,64 +10,40 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Получаем главную страницу для токенов
-    const mainPage = await fetch('https://policy.mtsbu.ua/', {
+    // Используем публичный proxy для обхода Cloudflare
+    const proxyUrl = 'https://api.allorigins.win/raw?url=';
+    const targetUrl = encodeURIComponent('https://policy.mtsbu.ua/?SearchType=Contract');
+    
+    // Получаем главную страницу через proxy
+    const mainPage = await fetch(proxyUrl + targetUrl, {
       headers: {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,image/*;q=0.8,*/*;q=0.1',
-        'accept-language': 'uk,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-        'cache-control': 'max-age=0',
-        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'none',
-        'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
       }
     });
     
+    if (!mainPage.ok) {
+      return res.status(500).json({ 
+        error: 'Failed to fetch main page',
+        status: mainPage.status 
+      });
+    }
+    
     const mainPageHtml = await mainPage.text();
     
-    // Извлекаем cookies
-    const cookieHeaders = mainPage.headers.get('set-cookie') || '';
-    const cookies = cookieHeaders.split(',').map(c => c.split(';')[0]).join('; ');
-    
-    // Ищем токен CSRF (несколько вариантов поиска)
-    let csrfToken = '';
-    
-    // Поиск 1: стандартный input
-    let tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
-    if (tokenMatch) {
-      csrfToken = tokenMatch[1];
-    } else {
-      // Поиск 2: в form
-      tokenMatch = mainPageHtml.match(/name="__RequestVerificationToken".*?value="([^"]+)"/);
-      if (tokenMatch) {
-        csrfToken = tokenMatch[1];
-      } else {
-        // Поиск 3: любое упоминание
-        tokenMatch = mainPageHtml.match(/RequestVerificationToken.*?"([A-Za-z0-9\-_]{50,})"/);
-        if (tokenMatch) {
-          csrfToken = tokenMatch[1];
-        }
-      }
-    }
+    // Ищем токен CSRF
+    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
+    const csrfToken = tokenMatch ? tokenMatch[1] : '';
     
     if (!csrfToken) {
       return res.status(500).json({ 
         error: 'CSRF token not found',
         debug: {
-          htmlSnippet: mainPageHtml.substring(0, 2000)
+          htmlSnippet: mainPageHtml.substring(0, 1000)
         }
       });
     }
 
-    // Ждем 2 секунды (имитация человека)
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Отправляем POST запрос
+    // Формируем POST данные
     const postData = new URLSearchParams({
       'RegNoModel.PlateNumber': plate,
       'RegNoModel.Date': new Date().toLocaleDateString('uk-UA'),
@@ -75,35 +51,44 @@ export default async function handler(req, res) {
       '__RequestVerificationToken': csrfToken
     });
 
-    const searchResponse = await fetch('https://policy.mtsbu.ua/', {
+    // Отправляем POST запрос через другой proxy (поддерживает POST)
+    const corsProxyUrl = 'https://cors-anywhere.herokuapp.com/';
+    
+    const searchResponse = await fetch(corsProxyUrl + 'https://policy.mtsbu.ua/', {
       method: 'POST',
       body: postData,
       headers: {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,image/*;q=0.8,*/*;q=0.1',
-        'accept-encoding': 'gzip, deflate, br, zstd',
-        'accept-language': 'uk,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-        'cache-control': 'max-age=0',
-        'content-type': 'application/x-www-form-urlencoded',
-        'origin': 'https://policy.mtsbu.ua',
-        'referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
-        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'same-origin',
-        'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'cookie': cookies
-      },
-      redirect: 'follow'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': 'https://policy.mtsbu.ua',
+        'Referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      }
     });
 
-    // Парсим результат
     const html = await searchResponse.text();
-    const companyMatch = html.match(/ПрАТ СК "[^"]+"|ТОВ "[^"]+"|АТ "[^"]+"|СК "[^"]+"/i);
-    const company = companyMatch ? companyMatch[0].trim() : 'Not found';
+    
+    // Парсим результат - улучшенный поиск названий компаний
+    let company = 'Not found';
+    
+    // Поиск различных форматов названий страховых компаний
+    const patterns = [
+      /ПрАТ СК "[^"]+"/gi,
+      /ТОВ "[^"]+"/gi, 
+      /АТ "[^"]+"/gi,
+      /СК "[^"]+"/gi,
+      /ПрАТ СК [А-ЯІЇЄa-z\s\-']+/gi,
+      /ТОВ [А-ЯІЇЄa-z\s\-']+/gi,
+      /АТ [А-ЯІЇЄa-z\s\-']+/gi,
+      /СК [А-ЯІЇЄa-z\s\-']+/gi
+    ];
+    
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match && match[0]) {
+        company = match[0].trim();
+        break;
+      }
+    }
 
     res.json({ 
       plate, 
@@ -112,13 +97,15 @@ export default async function handler(req, res) {
         htmlLength: html.length,
         statusCode: searchResponse.status,
         url: searchResponse.url,
-        fullHtml: html // Полный HTML для анализа
+        tokenFound: !!csrfToken,
+        htmlSnippet: html.substring(0, 1000)
       }
     });
     
   } catch (error) {
     res.status(500).json({ 
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 }

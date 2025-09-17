@@ -35,12 +35,34 @@ export default async function handler(req, res) {
     const cookieHeaders = mainPage.headers.get('set-cookie') || '';
     const cookies = cookieHeaders.split(',').map(c => c.split(';')[0]).join('; ');
     
-    // Ищем токен CSRF
-    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
-    const csrfToken = tokenMatch ? tokenMatch[1] : '';
+    // Ищем токен CSRF (несколько вариантов поиска)
+    let csrfToken = '';
+    
+    // Поиск 1: стандартный input
+    let tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
+    if (tokenMatch) {
+      csrfToken = tokenMatch[1];
+    } else {
+      // Поиск 2: в form
+      tokenMatch = mainPageHtml.match(/name="__RequestVerificationToken".*?value="([^"]+)"/);
+      if (tokenMatch) {
+        csrfToken = tokenMatch[1];
+      } else {
+        // Поиск 3: любое упоминание
+        tokenMatch = mainPageHtml.match(/RequestVerificationToken.*?"([A-Za-z0-9\-_]{50,})"/);
+        if (tokenMatch) {
+          csrfToken = tokenMatch[1];
+        }
+      }
+    }
     
     if (!csrfToken) {
-      return res.status(500).json({ error: 'CSRF token not found' });
+      return res.status(500).json({ 
+        error: 'CSRF token not found',
+        debug: {
+          htmlSnippet: mainPageHtml.substring(0, 2000)
+        }
+      });
     }
 
     // Ждем 2 секунды (имитация человека)

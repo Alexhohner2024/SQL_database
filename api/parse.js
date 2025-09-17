@@ -29,44 +29,53 @@ module.exports = async function handler(req, res) {
     // Парсим результат - ищем страховую компанию
     let company = 'Not found';
     
-    // Улучшенные паттерны для поиска компаний
+    // Улучшенные паттерны для полного названия страховых компаний
     const patterns = [
-      /ПрАТ\s*"[^"]+"/gi,
-      /ТОВ\s*"[^"]+"/gi, 
-      /АТ\s*"[^"]+"/gi,
-      /СК\s*"[^"]+"/gi,
-      /ПрАТ\s+СК\s*"[^"]+"/gi,
-      /ТОВ\s+СК\s*"[^"]+"/gi,
-      // Поиск без кавычек
-      /(?:ПрАТ|ТОВ|АТ|СК)\s+[А-ЯІЇЄЁa-z\s\-'"]+(?=\s*<|$)/gi
+      // Полные названия с кавычками
+      /ПрАТ\s*"[^"]{3,50}"/gi,
+      /ТОВ\s*"[^"]{3,50}"/gi, 
+      /АТ\s*"[^"]{3,50}"/gi,
+      /СК\s*"[^"]{3,50}"/gi,
+      
+      // Комбинированные формы
+      /ПрАТ\s+СК\s*"[^"]{3,50}"/gi,
+      /ТОВ\s+СК\s*"[^"]{3,50}"/gi,
+      /АТ\s+СК\s*"[^"]{3,50}"/gi,
+      
+      // Названия без кавычек (более осторожно)
+      /(?:ПрАТ|ТОВ|АТ|СК)\s+[А-ЯІЇЄЁ][А-ЯІЇЄЁа-я\s\-'"\.]{5,40}(?=\s*(?:<|$|\n))/gi,
+      
+      // Поиск в HTML структуре
+      /<[^>]*>\s*(?:ПрАТ|ТОВ|АТ|СК)[^<]{5,50}<\/[^>]*>/gi
     ];
     
     for (const pattern of patterns) {
       const match = html.match(pattern);
       if (match && match[0]) {
-        company = match[0].trim().replace(/[<>]/g, '');
-        break;
+        let foundCompany = match[0].trim().replace(/<[^>]*>/g, '');
+        // Очищаем от лишних символов но сохраняем кавычки и основной текст
+        foundCompany = foundCompany.replace(/[\r\n\t]+/g, ' ').trim();
+        if (foundCompany.length > company.length) {
+          company = foundCompany;
+        }
       }
     }
 
-    // Дополнительный поиск по структуре HTML
-    if (company === 'Not found') {
-      // Ищем секцию со страховой компанией
-      const companySection = html.match(/Страхова компанія[\s\S]*?Найменування[\s\S]*?<[^>]*>([^<]+)/i);
-      if (companySection) {
-        company = companySection[1].trim();
-      }
-      
-      // Альтернативный поиск по таблице
-      if (company === 'Not found') {
-        const tableMatch = html.match(/<td[^>]*>[\s\S]*?(ПрАТ[^<]+|ТОВ[^<]+|АТ[^<]+|СК[^<]+)[\s\S]*?<\/td>/gi);
-        if (tableMatch && tableMatch[0]) {
-          const cleanMatch = tableMatch[0].replace(/<[^>]*>/g, '').trim();
-          if (cleanMatch.length > 3) {
-            company = cleanMatch;
-          }
+    // Дополнительный поиск - ищем в контексте "Найменування"
+    if (company === 'Not found' || company.length < 10) {
+      const companySection = html.match(/Найменування[\s\S]{0,200}?<[^>]*>\s*([^<]{10,80})\s*</i);
+      if (companySection && companySection[1]) {
+        const foundName = companySection[1].trim();
+        if (foundName.length > 5 && /[А-ЯІЇЄЁ]/.test(foundName)) {
+          company = foundName;
         }
       }
+    }
+    
+    // Финальная очистка
+    if (company !== 'Not found') {
+      company = company.replace(/^["\s]+|["\s]+$/g, ''); // Убираем лишние кавычки по краям
+      company = company.replace(/\s{2,}/g, ' '); // Множественные пробелы в один
     }
 
     res.json({ 

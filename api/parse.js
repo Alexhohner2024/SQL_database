@@ -10,9 +10,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Используем публичный proxy для обхода Cloudflare
-    const proxyUrl = 'https://api.allorigins.win/raw?url=';
-    const targetUrl = encodeURIComponent('https://policy.mtsbu.ua/?SearchType=Contract');
+    // Используем другой публичный proxy
+    const proxyUrl = 'https://corsproxy.io/?';
+    const targetUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
     
     // Получаем главную страницу через proxy
     const mainPage = await fetch(proxyUrl + targetUrl, {

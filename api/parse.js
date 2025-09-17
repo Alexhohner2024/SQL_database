@@ -26,6 +26,10 @@ export default async function handler(req, res) {
     
     const mainPageHtml = await mainPage.text();
     
+    // Извлекаем cookies из ответа
+    const cookieHeader = mainPage.headers.get('set-cookie') || '';
+    const cookies = cookieHeader.split(',').map(c => c.split(';')[0]).join('; ');
+    
     // Ищем токен CSRF
     const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
     const csrfToken = tokenMatch ? tokenMatch[1] : '';
@@ -47,13 +51,15 @@ export default async function handler(req, res) {
       '__RequestVerificationToken': csrfToken
     });
 
-    // POST без proxy, прямой запрос с curl заголовками
+    // POST с cookies и правильной датой
     const searchResponse = await fetch('https://policy.mtsbu.ua/', {
       method: 'POST',
       body: postData,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'curl/7.68.0'
+        'User-Agent': 'curl/7.68.0',
+        'Cookie': cookies,
+        'Referer': 'https://policy.mtsbu.ua/'
       }
     });
 

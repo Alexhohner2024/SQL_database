@@ -96,7 +96,7 @@ export default async function handler(req, res) {
         statusCode: searchResponse.status,
         url: searchResponse.url,
         tokenFound: !!csrfToken,
-        htmlSnippet: html.substring(0, 1000)
+        htmlSnippet: html.substring(0, 5000)
       }
     });
     

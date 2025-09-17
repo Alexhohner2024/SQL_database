@@ -10,79 +10,62 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Простой запрос без proxy с минимальными заголовками
-    const mainPage = await fetch('https://policy.mtsbu.ua/', {
-      headers: {
-        'User-Agent': 'curl/7.68.0'
-      }
-    });
+    // URL локального сервера обхода Cloudflare
+    const bypassServer = 'http://localhost:8000';
+    const targetUrl = `https://policy.mtsbu.ua/?RegNoModel.PlateNumber=${plate}&RegNoModel.Date=${new Date().toLocaleDateString('uk-UA')}&SearchType=Contract`;
     
-    if (!mainPage.ok) {
+    // Получаем HTML через обход Cloudflare
+    const response = await fetch(`${bypassServer}/html?url=${encodeURIComponent(targetUrl)}`);
+    
+    if (!response.ok) {
       return res.status(500).json({ 
-        error: 'Failed to fetch main page',
-        status: mainPage.status 
+        error: 'Bypass server error',
+        status: response.status 
       });
     }
     
-    const mainPageHtml = await mainPage.text();
+    const html = await response.text();
     
-    // Извлекаем cookies из ответа
-    const cookieHeader = mainPage.headers.get('set-cookie') || '';
-    const cookies = cookieHeader.split(',').map(c => c.split(';')[0]).join('; ');
-    
-    // Ищем токен CSRF
-    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
-    const csrfToken = tokenMatch ? tokenMatch[1] : '';
-    
-    if (!csrfToken) {
-      return res.status(500).json({ 
-        error: 'CSRF token not found',
-        debug: {
-          htmlSnippet: mainPageHtml.substring(0, 1000)
-        }
-      });
-    }
-
-    // Формируем POST данные
-    const postData = new URLSearchParams({
-      'RegNoModel.PlateNumber': plate,
-      'RegNoModel.Date': new Date().toLocaleDateString('uk-UA'),
-      'SearchType': 'Contract',
-      '__RequestVerificationToken': csrfToken
-    });
-
-    // POST с cookies и правильной датой
-    const searchResponse = await fetch('https://policy.mtsbu.ua/', {
-      method: 'POST',
-      body: postData,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'curl/7.68.0',
-        'Cookie': cookies,
-        'Referer': 'https://policy.mtsbu.ua/'
-      }
-    });
-
-    const html = await searchResponse.text();
-    
-    // Парсим результат - точные паттерны для украинских компаний
+    // Парсим результат - ищем страховую компанию
     let company = 'Not found';
     
-    // Поиск конкретных форматов названий
+    // Улучшенные паттерны для поиска компаний
     const patterns = [
       /ПрАТ\s*"[^"]+"/gi,
       /ТОВ\s*"[^"]+"/gi, 
       /АТ\s*"[^"]+"/gi,
       /СК\s*"[^"]+"/gi,
       /ПрАТ\s+СК\s*"[^"]+"/gi,
-      /ТОВ\s+СК\s*"[^"]+"/gi
+      /ТОВ\s+СК\s*"[^"]+"/gi,
+      // Поиск без кавычек
+      /(?:ПрАТ|ТОВ|АТ|СК)\s+[А-ЯІЇЄЁa-z\s\-'"]+(?=\s*<|$)/gi
     ];
     
     for (const pattern of patterns) {
       const match = html.match(pattern);
       if (match && match[0]) {
-        company = match[0].trim();
+        company = match[0].trim().replace(/[<>]/g, '');
         break;
+      }
+    }
+
+    // Дополнительный поиск по структуре HTML
+    if (company === 'Not found') {
+      // Ищем секцию со страховой компанией
+      const companySection = html.match(/Страхова компанія[\s\S]*?Найменування[\s\S]*?<[^>]*>([^<]+)/i);
+      if (companySection) {
+        company = companySection[1].trim();
+      }
+      
+      // Альтернативный поиск по таблице
+      if (company === 'Not found') {
+        const tableMatch = html.match(/<td[^>]*>[\s\S]*?(ПрАТ[^<]+|ТОВ[^<]+|АТ[^<]+|СК[^<]+)[\s\S]*?<\/td>/gi);
+        if (tableMatch && tableMatch[0]) {
+          const cleanMatch = tableMatch[0].replace(/<[^>]*>/g, '').trim();
+          if (cleanMatch.length > 3) {
+            company = cleanMatch;
+          }
+        }
       }
     }
 
@@ -91,10 +74,9 @@ export default async function handler(req, res) {
       company,
       debug: {
         htmlLength: html.length,
-        statusCode: searchResponse.status,
-        url: searchResponse.url,
-        tokenFound: !!csrfToken,
-        htmlSnippet: html.substring(0, 5000)
+        found: company !== 'Not found',
+        bypassWorked: html.includes('Перевірка чинності'),
+        htmlSnippet: html.substring(0, 2000)
       }
     });
     

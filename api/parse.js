@@ -14,7 +14,6 @@ export default async function handler(req, res) {
     const mainPage = await fetch('https://policy.mtsbu.ua/', {
       headers: {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,image/*;q=0.8,*/*;q=0.1',
-        'accept-encoding': 'gzip, deflate, br, zstd',
         'accept-language': 'uk,ru;q=0.9,en-US;q=0.8,en;q=0.7',
         'cache-control': 'max-age=0',
         'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',

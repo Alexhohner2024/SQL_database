@@ -65,7 +65,7 @@ export default async function handler(req, res) {
         htmlLength: html.length,
         statusCode: searchResponse.status,
         url: searchResponse.url,
-        htmlSnippet: html.substring(0, 500)
+        fullHtml: html
       }
     });
     

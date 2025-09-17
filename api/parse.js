@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
   try {
     // Получаем главную страницу для токенов
-    const mainPage = await fetch('https://policy.mtsbu.ua/?SearchType=Contract', {
+    const mainPage = await fetch('https://policy.mtsbu.ua/', {
       headers: {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,image/*;q=0.8,*/*;q=0.1',
         'accept-encoding': 'gzip, deflate, br, zstd',

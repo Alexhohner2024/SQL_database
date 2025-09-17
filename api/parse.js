@@ -10,42 +10,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Шаг 1: Получаем главную страницу для токена
+    // Используем новый endpoint form_submit для автоматического заполнения формы
     const bypassServer = 'http://localhost:8000';
-    const mainPageUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
+    const targetUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
     
-    const mainPageResponse = await fetch(`${bypassServer}/html?url=${encodeURIComponent(mainPageUrl)}`);
-    const mainPageHtml = await mainPageResponse.text();
-    
-    // Извлекаем CSRF токен
-    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
-    const csrfToken = tokenMatch ? tokenMatch[1] : '';
-    
-    if (!csrfToken) {
-      return res.status(500).json({ 
-        error: 'CSRF token not found',
-        debug: { htmlSnippet: mainPageHtml.substring(0, 1000) }
-      });
-    }
-
-    // Шаг 2: Формируем POST URL с параметрами 
-    const postParams = new URLSearchParams({
-      'RegNoModel.PlateNumber': plate,
-      'RegNoModel.Date': new Date().toLocaleDateString('uk-UA'),
-      'SearchType': 'Contract',
-      '__RequestVerificationToken': csrfToken
-    });
-    
-    // Используем специальный POST endpoint через CloudflareBypass
-    const postUrl = `https://policy.mtsbu.ua/`;
-    const fullPostUrl = `${postUrl}?${postParams.toString()}`;
-    
-    // Получаем результаты поиска
-    const response = await fetch(`${bypassServer}/html?url=${encodeURIComponent(fullPostUrl)}`);
+    // Отправляем запрос с автоматическим заполнением и отправкой формы
+    const response = await fetch(`${bypassServer}/form_submit?url=${encodeURIComponent(targetUrl)}&plate=${encodeURIComponent(plate)}`);
     
     if (!response.ok) {
       return res.status(500).json({ 
-        error: 'Bypass server error',
+        error: 'Form submit failed',
         status: response.status 
       });
     }

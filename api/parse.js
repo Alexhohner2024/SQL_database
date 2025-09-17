@@ -1,5 +1,3 @@
-const { connect } = require('puppeteer-real-browser');
-
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -11,43 +9,52 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Plate number required' });
   }
 
-  let browser;
   try {
-    const { browser: realBrowser, page } = await connect({
-      headless: true,
-      turnstile: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    // Получаем главную страницу для токенов
+    const mainPage = await fetch('https://policy.mtsbu.ua/?SearchType=Contract', {
+      headers: {
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'accept-language': 'ru,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+      }
     });
     
-    browser = realBrowser;
+    const mainPageHtml = await mainPage.text();
+    const setCookieHeaders = mainPage.headers.get('set-cookie') || '';
     
-    await page.goto('https://policy.mtsbu.ua/?SearchType=Contract', {
-      waitUntil: 'networkidle2',
-      timeout: 30000
+    // Ищем токен CSRF
+    const tokenMatch = mainPageHtml.match(/__RequestVerificationToken.*?value="([^"]+)"/);
+    const csrfToken = tokenMatch ? tokenMatch[1] : '';
+    
+    if (!csrfToken) {
+      return res.status(500).json({ error: 'CSRF token not found' });
+    }
+
+    // Отправляем POST запрос без капчи
+    const postData = new URLSearchParams({
+      'RegNoModel.PlateNumber': plate,
+      'RegNoModel.Date': new Date().toLocaleDateString('uk-UA'),
+      'SearchType': 'Contract',
+      '__RequestVerificationToken': csrfToken
     });
-    
-    // Клик на "Державний номер ТЗ" если не выбрано
-    const plateRadio = await page.$('input[value="PlateNumber"]');
-    if (plateRadio) {
-      await plateRadio.click();
-      await page.waitForTimeout(1000);
-    }
-    
-    // Вводим номер
-    const inputField = await page.$('input[name="Number"]');
-    if (inputField) {
-      await inputField.click();
-      await inputField.type(plate);
-    }
-    
-    // Кликаем "Перевірити"
-    await page.click('button[type="submit"]');
-    
-    // Ждем результат
-    await page.waitForTimeout(10000);
-    
+
+    const searchResponse = await fetch('https://policy.mtsbu.ua/', {
+      method: 'POST',
+      body: postData,
+      headers: {
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'accept-language': 'ru,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+        'content-type': 'application/x-www-form-urlencoded',
+        'origin': 'https://policy.mtsbu.ua',
+        'referer': 'https://policy.mtsbu.ua/?SearchType=Contract',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+        'cookie': setCookieHeaders
+      },
+      redirect: 'follow'
+    });
+
     // Парсим результат
-    const html = await page.content();
+    const html = await searchResponse.text();
     const companyMatch = html.match(/ПрАТ СК[^<"]+|ТОВ[^<"]+|АТ[^<"]+|СК[^<"]+/i);
     const company = companyMatch ? companyMatch[0].trim() : 'Not found';
 
@@ -56,7 +63,9 @@ export default async function handler(req, res) {
       company,
       debug: {
         htmlLength: html.length,
-        url: page.url()
+        statusCode: searchResponse.status,
+        url: searchResponse.url,
+        htmlSnippet: html.substring(0, 500)
       }
     });
     
@@ -64,9 +73,5 @@ export default async function handler(req, res) {
     res.status(500).json({ 
       error: error.message
     });
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
   }
 }

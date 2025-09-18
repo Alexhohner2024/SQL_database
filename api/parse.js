@@ -11,7 +11,7 @@ module.exports = async function handler(req, res) {
 
   try {
     // Используем новый endpoint form_submit для автоматического заполнения формы
-    const bypassServer = 'https://9769ac7b5f42.ngrok-free.app';
+    const bypassServer = 'https://ab3b913c8b71.ngrok-free.app';
     const targetUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
     
     // Отправляем запрос с автоматическим заполнением и отправкой формы

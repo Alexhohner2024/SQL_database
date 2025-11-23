@@ -18,9 +18,10 @@ app.get('/api/parse', async (req, res) => {
 
   let browser;
   try {
-    // Запускаем браузер
+    // Запускаем браузер (используем ту же логику, что и в form_submit)
+    const useHeadless = process.env.HEADLESS === 'true' || req.query.headless === 'true';
     browser = await puppeteer.launch({
-      headless: true,
+      headless: useHeadless ? 'new' : false,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -30,7 +31,8 @@ app.get('/api/parse', async (req, res) => {
         '--no-zygote',
         '--single-process',
         '--disable-gpu'
-      ]
+      ],
+      defaultViewport: { width: 1280, height: 720 }
     });
 
     const page = await browser.newPage();
@@ -165,8 +167,17 @@ app.get('/form_submit', async (req, res) => {
       attempt++;
       console.log(`Attempt ${attempt} for plate: ${plate}`);
       
+      // Используем видимый браузер для прохождения капчи
+      // Можно управлять через параметр запроса ?headless=true или переменную окружения
+      const requestHeadless = req.query.headless === 'true';
+      const envHeadless = process.env.HEADLESS === 'true';
+      const useHeadless = requestHeadless || envHeadless; // По умолчанию ВИДИМЫЙ браузер
+      
+      console.log(`Browser mode: ${useHeadless ? 'HEADLESS' : 'VISIBLE (headless=false)'}`);
+      console.log(`HEADLESS env: ${process.env.HEADLESS}, request param: ${req.query.headless}`);
+      
       browser = await puppeteer.launch({
-        headless: true,
+        headless: useHeadless ? 'new' : false, // 'new' для нового headless режима, false для видимого
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -177,8 +188,14 @@ app.get('/form_submit', async (req, res) => {
           '--single-process',
           '--disable-gpu',
           '--disable-web-security'
-        ]
+        ],
+        // Для видимого браузера можно указать размер окна
+        defaultViewport: { width: 1280, height: 720 }
       });
+      
+      if (!useHeadless) {
+        console.log('⚠️  Видимый браузер запущен - вы сможете видеть процесс и пройти капчу вручную');
+      }
 
       page = await browser.newPage();
       
@@ -230,42 +247,122 @@ app.get('/form_submit', async (req, res) => {
       }
 
       // Кликаем submit
+      console.log('Clicking submit button...');
       await page.click('#submitBtn');
       
-      // Ждем загрузки результатов (более гибко)
-      await page.waitForTimeout(3000);
+      // Ждем начала загрузки
+      await page.waitForTimeout(2000);
       
+      // Проверяем наличие капчи
+      let hasCaptcha = false;
       try {
-        await page.waitForSelector('.cf-turnstile, .result, .error, table, .policy-info, body', { 
-          timeout: 15000 
-        });
+        const captcha = await page.$('.cf-turnstile, iframe[src*="turnstile"]');
+        if (captcha) {
+          console.log('Captcha detected, waiting for solution...');
+          hasCaptcha = true;
+          // Ждем решения капчи (может занять до 15 секунд)
+          await page.waitForTimeout(15000);
+          
+          // Проверяем, решена ли капча
+          const captchaStillThere = await page.$('.cf-turnstile');
+          if (captchaStillThere) {
+            console.log('Captcha still present, waiting more...');
+            await page.waitForTimeout(10000);
+          }
+        }
       } catch (e) {
-        console.log('Selector wait timeout, continuing...');
+        console.log('Captcha check error:', e.message);
       }
       
-      // Дополнительное ожидание для капчи
-      const captcha = await page.$('.cf-turnstile');
-      if (captcha) {
-        console.log('Captcha detected, waiting...');
-        await page.waitForTimeout(8000);
+      // Ждем появления результатов - ищем ключевые элементы
+      console.log('Waiting for results...');
+      let resultsFound = false;
+      const maxWaitTime = 30000; // 30 секунд максимум
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWaitTime && !resultsFound) {
+        await page.waitForTimeout(2000);
         
-        try {
-          const submitBtn = await page.$('#submitBtn');
-          if (submitBtn) {
-            await submitBtn.click();
-            await page.waitForTimeout(5000);
-          }
-        } catch (e) {
-          console.log('Second submit error:', e.message);
+        // Проверяем наличие данных о полисе
+        const hasPolicyData = await page.evaluate(() => {
+          const text = document.body ? document.body.innerText : '';
+          return text.includes('Поліс') || 
+                 text.includes('Страхова компанія') || 
+                 text.includes('Найменування') ||
+                 text.includes('Перевірка чинності');
+        });
+        
+        if (hasPolicyData) {
+          console.log('Policy data found!');
+          resultsFound = true;
+          break;
+        }
+        
+        // Проверяем, не появилась ли ошибка
+        const hasError = await page.evaluate(() => {
+          const text = document.body ? document.body.innerText : '';
+          return text.includes('не знайдено') || 
+                 text.includes('помилка') ||
+                 text.includes('error');
+        });
+        
+        if (hasError) {
+          console.log('Error message detected');
+          resultsFound = true; // Все равно возвращаем HTML
+          break;
         }
       }
+      
+      // Дополнительное ожидание для полной загрузки
+      await page.waitForTimeout(2000);
 
       // Получаем HTML страницы
-      const html = await page.content();
+      let html = '';
+      try {
+        html = await page.content();
+        console.log(`HTML length: ${html.length}`);
+        
+        // Проверяем наличие контента в body
+        const bodyText = await page.evaluate(() => {
+          return document.body ? document.body.innerText : '';
+        });
+        console.log(`Body text length: ${bodyText.length}`);
+        console.log(`Body contains 'Поліс': ${bodyText.includes('Поліс')}`);
+        console.log(`Body contains 'Страхова': ${bodyText.includes('Страхова')}`);
+        
+        // Если body пустой, пробуем получить полный HTML
+        if (bodyText.length < 50) {
+          console.log('Body text too short, trying to get full HTML');
+          html = await page.evaluate(() => document.documentElement.outerHTML);
+        }
+      } catch (e) {
+        console.log('Error getting HTML:', e.message);
+        // Пробуем получить хотя бы часть HTML
+        try {
+          html = await page.evaluate(() => document.documentElement.outerHTML);
+        } catch (e2) {
+          console.log('Error getting HTML fallback:', e2.message);
+        }
+      }
       
       if (browser) {
-        await browser.close();
+        try {
+          await browser.close();
+        } catch (e) {
+          console.log('Browser close error:', e.message);
+        }
         browser = null;
+      }
+
+      // Проверяем, что есть контент
+      if (!html || html.length < 100) {
+        console.log('Empty or too short HTML, returning error');
+        res.status(500).json({
+          error: 'Empty HTML response from bypass server',
+          htmlLength: html ? html.length : 0,
+          htmlSnippet: html ? html.substring(0, 200) : ''
+        });
+        return;
       }
 
       // Возвращаем HTML (как ожидает parse.js)
@@ -286,15 +383,18 @@ app.get('/form_submit', async (req, res) => {
       }
       
       if (attempt >= maxRetries) {
+        console.error(`All ${maxRetries} attempts failed. Last error:`, error.message);
         res.status(500).json({
           error: error.message,
           stack: error.stack,
-          attempts: attempt
+          attempts: attempt,
+          message: 'Bypass server failed to get data after multiple attempts'
         });
         return;
       }
       
       // Ждем перед повтором
+      console.log(`Retrying in 2 seconds... (attempt ${attempt}/${maxRetries})`);
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }

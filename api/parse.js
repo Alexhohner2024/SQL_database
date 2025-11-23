@@ -1,16 +1,24 @@
 // Функция для парсинга номера полиса из HTML
 function parsePolicyNumber(html) {
-  // Паттерны для поиска номера полиса
+  // Паттерны для поиска номера полиса (улучшенные)
   const patterns = [
+    // Поліс № 233959185 (точный формат с сайта)
+    /Поліс\s+№\s*([0-9]{6,15})/gi,
+    /Поліс[:\s]*№[:\s]*([0-9]{6,15})/gi,
     // Номер полиса в различных форматах
     /Номер\s+поліса[:\s]*([A-ZА-Я0-9\-]{5,30})/gi,
-    /Поліс[:\s]*№[:\s]*([A-ZА-Я0-9\-]{5,30})/gi,
     /№\s+поліса[:\s]*([A-ZА-Я0-9\-]{5,30})/gi,
     /Contract\s+№[:\s]*([A-ZА-Я0-9\-]{5,30})/gi,
     /Договір[:\s]*№[:\s]*([A-ZА-Я0-9\-]{5,30})/gi,
+    // Поиск в HTML структуре (h2, div, span)
+    /<h[1-6][^>]*>.*?Поліс[^<]*№[^<]*([0-9]{6,15})[^<]*<\/h[1-6]>/gi,
+    /<div[^>]*>.*?Поліс[^<]*№[^<]*([0-9]{6,15})[^<]*<\/div>/gi,
+    /<span[^>]*>.*?Поліс[^<]*№[^<]*([0-9]{6,15})[^<]*<\/span>/gi,
     // Поиск в таблицах и структурированных данных
     /<td[^>]*>\s*[Н№][^<]*поліса?[^<]*<\/td>\s*<td[^>]*>\s*([A-ZА-Я0-9\-]{5,30})\s*<\/td>/gi,
     /<th[^>]*>[Н№][^<]*поліса?[^<]*<\/th>\s*<td[^>]*>\s*([A-ZА-Я0-9\-]{5,30})\s*<\/td>/gi,
+    // Поиск после текста "Поліс"
+    /Поліс[^№]*№[^0-9]*([0-9]{6,15})/gi,
   ];
 
   for (const pattern of patterns) {
@@ -20,6 +28,15 @@ function parsePolicyNumber(html) {
       if (policyNumber.length >= 5 && policyNumber.length <= 30) {
         return policyNumber;
       }
+    }
+  }
+
+  // Дополнительный поиск - ищем последовательности цифр после "Поліс"
+  const policyAfterText = html.match(/Поліс[^0-9]*([0-9]{6,15})/gi);
+  if (policyAfterText) {
+    const numberMatch = policyAfterText[0].match(/([0-9]{6,15})/);
+    if (numberMatch && numberMatch[1]) {
+      return numberMatch[1];
     }
   }
 
@@ -45,6 +62,9 @@ function parseCompanyName(html) {
   
   // Улучшенные паттерны для полного названия страховых компаний
   const patterns = [
+    // АТ "СГ "ТАС" (приватне) - формат с сайта
+    /АТ\s*"[^"]{1,20}"[^"]{0,30}"[^"]{0,30}"[^"]{0,30}\([^)]+\)/gi,
+    /АТ\s*"[^"]{1,50}"\s*\([^)]+\)/gi,
     // Полные названия с кавычками
     /ПрАТ\s*"[^"]{3,50}"/gi,
     /ТОВ\s*"[^"]{3,50}"/gi, 
@@ -74,13 +94,34 @@ function parseCompanyName(html) {
     }
   }
 
-  // Дополнительный поиск - ищем в контексте "Найменування"
+  // Дополнительный поиск - ищем в контексте "Найменування" (улучшенный)
   if (company === 'Not found' || company.length < 10) {
-    const companySection = html.match(/Найменування[\s\S]{0,200}?<[^>]*>\s*([^<]{10,80})\s*</i);
+    // Ищем более широкий контекст вокруг "Найменування"
+    const companySection = html.match(/Найменування[\s\S]{0,500}?<[^>]*>\s*([^<]{10,100})\s*</i);
     if (companySection && companySection[1]) {
-      const foundName = companySection[1].trim();
+      let foundName = companySection[1].trim();
+      // Извлекаем название компании из найденного текста
+      const companyMatch = foundName.match(/(?:АТ|ТОВ|ПрАТ|СК)\s*"[^"]+"/);
+      if (companyMatch) {
+        foundName = companyMatch[0];
+      }
       if (foundName.length > 5 && /[А-ЯІЇЄЁ]/.test(foundName)) {
         company = foundName;
+      }
+    }
+    
+    // Еще один паттерн - ищем после "Страхова компанія"
+    if (company === 'Not found' || company.length < 10) {
+      const afterInsurance = html.match(/Страхова\s+компанія[\s\S]{0,300}?Найменування[\s\S]{0,200}?<[^>]*>\s*([^<]{10,100})\s*</i);
+      if (afterInsurance && afterInsurance[1]) {
+        let foundName = afterInsurance[1].trim();
+        const companyMatch = foundName.match(/(?:АТ|ТОВ|ПрАТ|СК)\s*"[^"]+"/);
+        if (companyMatch) {
+          foundName = companyMatch[0];
+        }
+        if (foundName.length > 5 && /[А-ЯІЇЄЁ]/.test(foundName)) {
+          company = foundName;
+        }
       }
     }
   }
@@ -89,6 +130,9 @@ function parseCompanyName(html) {
   if (company !== 'Not found') {
     company = company.replace(/^["\s]+|["\s]+$/g, '');
     company = company.replace(/\s{2,}/g, ' ');
+    // Убираем лишние HTML entities
+    company = company.replace(/&nbsp;/g, ' ');
+    company = company.replace(/&quot;/g, '"');
   }
 
   return company;
@@ -133,6 +177,10 @@ async function getPolicyData(plate, date = null) {
   
   const html = await response.text();
   
+  // Сохраняем HTML для отладки (только если нет контента)
+  const fs = require('fs');
+  const path = require('path');
+  
   // Проверяем, что получили HTML
   if (!html || html.length < 100) {
     return {
@@ -146,13 +194,41 @@ async function getPolicyData(plate, date = null) {
   
   // Проверяем, что страница загрузилась корректно
   const hasPolicyContent = html.includes('Перевірка чинності') || 
+                          html.includes('Поліс') || 
                           html.includes('поліс') || 
                           html.includes('Страхова') ||
-                          html.includes('Найменування');
+                          html.includes('Найменування') ||
+                          html.includes('СГ') ||
+                          html.includes('ТАС');
+  
+  // Логируем для отладки
+  console.log('HTML check:', {
+    length: html.length,
+    hasPolicyContent,
+    hasPolis: html.includes('Поліс') || html.includes('поліс'),
+    hasCompany: html.includes('Страхова') || html.includes('Найменування'),
+    snippet: html.substring(0, 500)
+  });
+  
+  // Сохраняем HTML для анализа, если нет контента
+  if (!hasPolicyContent && html.length > 1000) {
+    try {
+      const debugDir = path.join(__dirname, 'debug');
+      if (!fs.existsSync(debugDir)) {
+        fs.mkdirSync(debugDir, { recursive: true });
+      }
+      const debugFile = path.join(debugDir, `html-${Date.now()}.html`);
+      fs.writeFileSync(debugFile, html, 'utf8');
+      console.log(`Debug HTML saved to: ${debugFile}`);
+    } catch (e) {
+      console.log('Error saving debug HTML:', e.message);
+    }
+  }
   
   if (!hasPolicyContent) {
     // Возможно страница загрузилась, но нет данных о страховке
-    // Все равно пытаемся распарсить
+    // Все равно пытаемся распарсить - может быть данные в другом формате
+    console.log('No policy content found, but trying to parse anyway');
   }
   
   const policyNumber = parsePolicyNumber(html);

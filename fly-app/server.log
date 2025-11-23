@@ -1,27 +1,3 @@
 Server running on port 8080
 Bypass server ready at http://localhost:8080
 Endpoint: http://localhost:8080/form_submit
-[1m[43m[30m
-  Puppeteer old Headless deprecation warning:[0m[33m
-    In the near future `headless: true` will default to the new Headless mode
-    for Chrome instead of the old Headless implementation. For more
-    information, please see https://developer.chrome.com/articles/new-headless/.
-    Consider opting in early by passing `headless: "new"` to `puppeteer.launch()`
-    If you encounter any bugs, please report them to https://github.com/puppeteer/puppeteer/issues/new/choose.[0m
-
-[1m[43m[30m
-  Puppeteer old Headless deprecation warning:[0m[33m
-    In the near future `headless: true` will default to the new Headless mode
-    for Chrome instead of the old Headless implementation. For more
-    information, please see https://developer.chrome.com/articles/new-headless/.
-    Consider opting in early by passing `headless: "new"` to `puppeteer.launch()`
-    If you encounter any bugs, please report them to https://github.com/puppeteer/puppeteer/issues/new/choose.[0m
-
-[1m[43m[30m
-  Puppeteer old Headless deprecation warning:[0m[33m
-    In the near future `headless: true` will default to the new Headless mode
-    for Chrome instead of the old Headless implementation. For more
-    information, please see https://developer.chrome.com/articles/new-headless/.
-    Consider opting in early by passing `headless: "new"` to `puppeteer.launch()`
-    If you encounter any bugs, please report them to https://github.com/puppeteer/puppeteer/issues/new/choose.[0m
-

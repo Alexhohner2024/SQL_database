@@ -96,7 +96,9 @@ function parseCompanyName(html) {
 
 // Функция для получения данных полиса на конкретную дату
 async function getPolicyData(plate, date = null) {
-  const bypassServer = 'https://ab3b913c8b71.ngrok-free.app';
+  // URL bypass сервера можно настроить через переменную окружения BYPASS_SERVER
+  // Или используйте актуальный URL вашего ngrok/сервера
+  const bypassServer = process.env.BYPASS_SERVER || 'https://ab3b913c8b71.ngrok-free.app';
   const targetUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
   
   let url = `${bypassServer}/form_submit?url=${encodeURIComponent(targetUrl)}&plate=${encodeURIComponent(plate)}`;
@@ -107,10 +109,26 @@ async function getPolicyData(plate, date = null) {
     url += `&date=${encodeURIComponent(dateStr)}`;
   }
   
-  const response = await fetch(url);
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 30000 // 30 секунд таймаут
+    });
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error(`Не удалось подключиться к bypass серверу (${bypassServer}). Проверьте, что сервер запущен и доступен.`);
+    }
+    throw new Error(`Ошибка сети: ${error.message}`);
+  }
   
   if (!response.ok) {
-    throw new Error(`Form submit failed: ${response.status}`);
+    if (response.status === 404) {
+      throw new Error(`Bypass сервер вернул 404. Возможно:\n1. Endpoint /form_submit не существует\n2. URL ngrok изменился (${bypassServer})\n3. Сервер не запущен\n\nПроверьте URL bypass сервера в коде.`);
+    }
+    throw new Error(`Bypass сервер вернул ошибку: ${response.status} ${response.statusText}`);
   }
   
   const html = await response.text();

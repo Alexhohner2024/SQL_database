@@ -147,6 +147,100 @@ app.get('/api/parse', async (req, res) => {
   }
 });
 
+// Endpoint для form_submit (совместим с parse.js)
+app.get('/form_submit', async (req, res) => {
+  const { url, plate, date } = req.query;
+  
+  if (!plate) {
+    return res.status(400).json({ error: 'Plate number required' });
+  }
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
+    });
+
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+    
+    // Используем переданный URL или дефолтный
+    const targetUrl = url || 'https://policy.mtsbu.ua/?SearchType=Contract';
+    await page.goto(targetUrl, { 
+      waitUntil: 'networkidle2',
+      timeout: 30000 
+    });
+
+    // Заполняем форму
+    await page.type('#RegNoModel_PlateNumber', plate);
+    
+    // Устанавливаем дату (если передана, иначе текущая)
+    let dateToUse;
+    if (date) {
+      dateToUse = date;
+    } else {
+      dateToUse = new Date().toLocaleDateString('uk-UA');
+    }
+    
+    await page.evaluate((date) => {
+      const dateInput = document.getElementById('numDate');
+      if (dateInput) {
+        dateInput.value = date;
+      }
+    }, dateToUse);
+
+    // Кликаем submit
+    await page.click('#submitBtn');
+    
+    // Ждем загрузки результатов
+    try {
+      await page.waitForSelector('.cf-turnstile, .result, .error, table, .policy-info', { 
+        timeout: 10000 
+      });
+      
+      const captcha = await page.$('.cf-turnstile');
+      if (captcha) {
+        await page.waitForTimeout(5000);
+        const submitBtn = await page.$('#submitBtn');
+        if (submitBtn) {
+          await submitBtn.click();
+          await page.waitForTimeout(3000);
+        }
+      }
+    } catch (error) {
+      console.log('Timeout waiting for elements');
+    }
+
+    // Получаем HTML страницы
+    const html = await page.content();
+    await browser.close();
+
+    // Возвращаем HTML (как ожидает parse.js)
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+
+  } catch (error) {
+    if (browser) {
+      await browser.close();
+    }
+    
+    res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 // Healthcheck endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -154,4 +248,6 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Bypass server ready at http://localhost:${PORT}`);
+  console.log(`Endpoint: http://localhost:${PORT}/form_submit`);
 });

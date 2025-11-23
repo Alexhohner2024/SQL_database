@@ -98,7 +98,7 @@ function parseCompanyName(html) {
 async function getPolicyData(plate, date = null) {
   // URL bypass сервера можно настроить через переменную окружения BYPASS_SERVER
   // Или используйте актуальный URL вашего ngrok/сервера
-  const bypassServer = process.env.BYPASS_SERVER || 'https://ab3b913c8b71.ngrok-free.app';
+  const bypassServer = process.env.BYPASS_SERVER || 'https://preoccasioned-volubly-christia.ngrok-free.dev';
   const targetUrl = 'https://policy.mtsbu.ua/?SearchType=Contract';
   
   let url = `${bypassServer}/form_submit?url=${encodeURIComponent(targetUrl)}&plate=${encodeURIComponent(plate)}`;
@@ -133,9 +133,26 @@ async function getPolicyData(plate, date = null) {
   
   const html = await response.text();
   
+  // Проверяем, что получили HTML
+  if (!html || html.length < 100) {
+    return {
+      policyNumber: null,
+      company: 'Not found',
+      html: html || '',
+      hasInsurance: false,
+      error: 'Empty or invalid HTML response'
+    };
+  }
+  
   // Проверяем, что страница загрузилась корректно
-  if (!html.includes('Перевірка чинності') && !html.includes('поліс')) {
-    return null; // Страховка не найдена или страница не загрузилась
+  const hasPolicyContent = html.includes('Перевірка чинності') || 
+                          html.includes('поліс') || 
+                          html.includes('Страхова') ||
+                          html.includes('Найменування');
+  
+  if (!hasPolicyContent) {
+    // Возможно страница загрузилась, но нет данных о страховке
+    // Все равно пытаемся распарсить
   }
   
   const policyNumber = parsePolicyNumber(html);
@@ -145,7 +162,7 @@ async function getPolicyData(plate, date = null) {
     policyNumber,
     company,
     html,
-    hasInsurance: policyNumber !== null || company !== 'Not found'
+    hasInsurance: policyNumber !== null || (company !== 'Not found' && company.length > 5)
   };
 }
 
@@ -355,7 +372,7 @@ module.exports = async function handler(req, res) {
     // Получаем данные на текущую дату
     const currentData = await getPolicyData(plate);
     
-    if (!currentData || !currentData.hasInsurance) {
+    if (!currentData) {
       return res.json({
         plate,
         company: 'Not found',
@@ -363,7 +380,25 @@ module.exports = async function handler(req, res) {
         expiryDate: null,
         hasInsurance: false,
         debug: {
-          message: 'No insurance found for current date'
+          message: 'No response from bypass server',
+          error: currentData?.error || 'Unknown error'
+        }
+      });
+    }
+    
+    if (!currentData.hasInsurance) {
+      return res.json({
+        plate,
+        company: currentData.company || 'Not found',
+        policyNumber: currentData.policyNumber || null,
+        expiryDate: null,
+        hasInsurance: false,
+        debug: {
+          message: 'No insurance found for current date',
+          htmlLength: currentData.html?.length || 0,
+          htmlSnippet: currentData.html?.substring(0, 500) || '',
+          foundPolicyNumber: currentData.policyNumber !== null,
+          foundCompany: currentData.company !== 'Not found'
         }
       });
     }

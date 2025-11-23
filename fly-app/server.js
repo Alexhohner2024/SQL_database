@@ -156,88 +156,147 @@ app.get('/form_submit', async (req, res) => {
   }
 
   let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ]
-    });
+  let page;
+  const maxRetries = 2;
+  let attempt = 0;
 
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
-    
-    // Используем переданный URL или дефолтный
-    const targetUrl = url || 'https://policy.mtsbu.ua/?SearchType=Contract';
-    await page.goto(targetUrl, { 
-      waitUntil: 'networkidle2',
-      timeout: 30000 
-    });
-
-    // Заполняем форму
-    await page.type('#RegNoModel_PlateNumber', plate);
-    
-    // Устанавливаем дату (если передана, иначе текущая)
-    let dateToUse;
-    if (date) {
-      dateToUse = date;
-    } else {
-      dateToUse = new Date().toLocaleDateString('uk-UA');
-    }
-    
-    await page.evaluate((date) => {
-      const dateInput = document.getElementById('numDate');
-      if (dateInput) {
-        dateInput.value = date;
-      }
-    }, dateToUse);
-
-    // Кликаем submit
-    await page.click('#submitBtn');
-    
-    // Ждем загрузки результатов
+  while (attempt < maxRetries) {
     try {
-      await page.waitForSelector('.cf-turnstile, .result, .error, table, .policy-info', { 
-        timeout: 10000 
-      });
+      attempt++;
+      console.log(`Attempt ${attempt} for plate: ${plate}`);
       
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu',
+          '--disable-web-security'
+        ]
+      });
+
+      page = await browser.newPage();
+      
+      // Устанавливаем таймауты
+      page.setDefaultNavigationTimeout(30000);
+      page.setDefaultTimeout(30000);
+      
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+      
+      // Используем переданный URL или дефолтный
+      const targetUrl = url || 'https://policy.mtsbu.ua/?SearchType=Contract';
+      
+      try {
+        await page.goto(targetUrl, { 
+          waitUntil: 'domcontentloaded',
+          timeout: 30000 
+        });
+      } catch (navError) {
+        console.log('Navigation error, trying networkidle0:', navError.message);
+        await page.goto(targetUrl, { 
+          waitUntil: 'networkidle0',
+          timeout: 30000 
+        });
+      }
+
+      // Ждем появления формы
+      await page.waitForSelector('#RegNoModel_PlateNumber', { timeout: 10000 });
+
+      // Заполняем форму
+      await page.type('#RegNoModel_PlateNumber', plate, { delay: 100 });
+      
+      // Устанавливаем дату (если передана, иначе текущая)
+      let dateToUse;
+      if (date) {
+        dateToUse = date;
+      } else {
+        dateToUse = new Date().toLocaleDateString('uk-UA');
+      }
+      
+      try {
+        await page.evaluate((date) => {
+          const dateInput = document.getElementById('numDate');
+          if (dateInput) {
+            dateInput.value = date;
+          }
+        }, dateToUse);
+      } catch (e) {
+        console.log('Date input error:', e.message);
+      }
+
+      // Кликаем submit
+      await page.click('#submitBtn');
+      
+      // Ждем загрузки результатов (более гибко)
+      await page.waitForTimeout(3000);
+      
+      try {
+        await page.waitForSelector('.cf-turnstile, .result, .error, table, .policy-info, body', { 
+          timeout: 15000 
+        });
+      } catch (e) {
+        console.log('Selector wait timeout, continuing...');
+      }
+      
+      // Дополнительное ожидание для капчи
       const captcha = await page.$('.cf-turnstile');
       if (captcha) {
-        await page.waitForTimeout(5000);
-        const submitBtn = await page.$('#submitBtn');
-        if (submitBtn) {
-          await submitBtn.click();
-          await page.waitForTimeout(3000);
+        console.log('Captcha detected, waiting...');
+        await page.waitForTimeout(8000);
+        
+        try {
+          const submitBtn = await page.$('#submitBtn');
+          if (submitBtn) {
+            await submitBtn.click();
+            await page.waitForTimeout(5000);
+          }
+        } catch (e) {
+          console.log('Second submit error:', e.message);
         }
       }
+
+      // Получаем HTML страницы
+      const html = await page.content();
+      
+      if (browser) {
+        await browser.close();
+        browser = null;
+      }
+
+      // Возвращаем HTML (как ожидает parse.js)
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+      return;
+
     } catch (error) {
-      console.log('Timeout waiting for elements');
+      console.error(`Attempt ${attempt} failed:`, error.message);
+      
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (e) {
+          console.log('Browser close error:', e.message);
+        }
+        browser = null;
+      }
+      
+      if (attempt >= maxRetries) {
+        res.status(500).json({
+          error: error.message,
+          stack: error.stack,
+          attempts: attempt
+        });
+        return;
+      }
+      
+      // Ждем перед повтором
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
-
-    // Получаем HTML страницы
-    const html = await page.content();
-    await browser.close();
-
-    // Возвращаем HTML (как ожидает parse.js)
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-
-  } catch (error) {
-    if (browser) {
-      await browser.close();
-    }
-    
-    res.status(500).json({
-      error: error.message,
-      stack: error.stack
-    });
   }
 });
 
